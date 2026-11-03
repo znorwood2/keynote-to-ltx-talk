@@ -64,3 +64,7 @@ Claude reads the Keynote, writes `3.4.tex`, builds and checks it, and reports wh
 ## Credits
 
 Developed by [@znorwood2](https://github.com/znorwood2) with Claude while converting a multivariable-calculus course, and generalized for colleagues. Issues and pull requests are welcome.
+
+## License
+
+[MIT](LICENSE).
