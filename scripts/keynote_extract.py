@@ -4,15 +4,24 @@
     python3 keynote_extract.py deck.key                 # human-readable report
     python3 keynote_extract.py deck.key --json out.json # machine-readable
     python3 keynote_extract.py deck.key --pdf deck.pdf  # also reconcile with an export
+    python3 keynote_extract.py deck.key --media DIR     # also copy embedded media to DIR
 
 For each slide, in show order: skip flag, thumbnail file, title and text (with
 U+FFFC marking inline objects such as equations), the LaTeX source of every
-equation object, hyperlinks, presenter notes, and its builds: each build's
-effect and delivery plus the number of click steps. The predicted number of
+equation (Keynote's own equation objects and LaTeXiT images, see latexit.py),
+in reading order, the images it shows, hyperlinks, presenter notes, and its
+builds: each build's effect and delivery plus the number of click steps. The predicted number of
 exported PDF pages for a visible slide is clicks + 1 (Keynote's PDF export with
 "each stage of builds" prints the state before the first click too).
 
+Many instructors build by duplicating slides instead of using Keynote builds.
+Consecutive slides with the same title are reported as a "run", marked
+cumulative (each slide only adds to the previous one) or rearranged.
+
 Never writes inside the .key; everything is read from the zip in memory.
+--media writes copies of Data/ files under safe names (Keynote stores some
+names, e.g. screenshots with U+202F, without the zip UTF-8 flag, which breaks
+`unzip`); the JSON's image file names refer to those copies.
 
 Field meanings below were reverse-engineered from Keynote 13/14 files
 (2023-2026) and checked against build-expanded PDF exports:
@@ -27,13 +36,17 @@ Field meanings below were reverse-engineered from Keynote 13/14 files
                                            vs. on click (0)
                 type 2001 TSWP storage     field 3 text
                 type 2032 hyperlink field  field 2 URL
-                type 3005 equation         field 100 LaTeX source
+                type 3005 image            field 1.1.1 position (x, y float32),
+                                           field 1.1.2 size, field 11 data id
+                                           (Data/*-<id>.*), field 100 LaTeX source
+                                           for Keynote equation objects
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import struct
 import subprocess
 import sys
 import zipfile
@@ -41,6 +54,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from iwa import decode, iwa_stream, _varint  # noqa: E402
+from latexit import read_latexit  # noqa: E402
+
+
+def member_name(zi: zipfile.ZipInfo) -> str:
+    """The member's real name: Keynote writes UTF-8 names without the UTF-8 flag."""
+    if zi.flag_bits & 0x800:
+        return zi.filename
+    try:
+        return zi.filename.encode("cp437").decode("utf-8")
+    except UnicodeError:
+        return zi.filename
+
+
+def safe_name(name: str) -> str:
+    """A file-system-safe version of a Data/ file name (used by --media)."""
+    base = name.rsplit("/", 1)[-1]
+    return re.sub(r"[^\w.\-]+", "_", base, flags=re.ASCII).strip("_") or "file"
 
 
 def read_iwa_bytes(raw: bytes) -> dict[int, list[tuple[int, bytes]]]:
@@ -125,10 +155,47 @@ def slide_record(objs, slide_id):
     return None
 
 
-def parse_slide(z: zipfile.ZipFile, names: dict[int, str], slide_id: int) -> dict:
+def _floats(b: bytes) -> tuple[float, ...]:
+    return tuple(struct.unpack("<f", v)[0] for _, wt, v in decode(b) if wt == 5)
+
+
+def image_record(b: bytes, data: dict[int, tuple[zipfile.ZipFile, zipfile.ZipInfo]],
+                 cache: dict) -> dict:
+    """Position, size, file and any LaTeX source of a type-3005 image object."""
+    img = {"file": None, "x": None, "y": None, "w": None, "h": None, "latex": None,
+           "latex_from": None, "color": None}
+    geom = find_in(b, (1, 1))
+    if geom:
+        pos, size = find_in(geom[0], (1,)), find_in(geom[0], (2,))
+        if pos and len(_floats(pos[0])) == 2:
+            img["x"], img["y"] = (round(v, 1) for v in _floats(pos[0]))
+        if size and len(_floats(size[0])) == 2:
+            img["w"], img["h"] = (round(v, 1) for v in _floats(size[0]))
+    for s in fields(b).get(100, []):
+        s = text_of(s)
+        if s:
+            img["latex"], img["latex_from"] = s, "equation"
+    for v in find_in(b, (11, 1)):
+        if not isinstance(v, int) or v not in data:
+            continue
+        zf, zi = data[v]
+        img["file"] = safe_name(member_name(zi))
+        if img["latex"] is None and zi.filename.lower().endswith(".pdf"):
+            if zi.filename not in cache:
+                cache[zi.filename] = read_latexit(zf.read(zi))
+            lx = cache[zi.filename]
+            if lx:
+                img["latex"], img["latex_from"], img["color"] = lx["source"], "latexit", lx["color"]
+    return img
+
+
+def parse_slide(z: zipfile.ZipFile, names: dict[int, str], slide_id: int,
+                data: dict | None = None, cache: dict | None = None) -> dict:
+    data = data or {}
+    cache = {} if cache is None else cache
     name = names.get(slide_id)
-    info = {"slide_id": slide_id, "iwa": name, "texts": [], "equations": [], "links": [],
-            "builds": [], "clicks": 0, "automatic_steps": 0}
+    info = {"slide_id": slide_id, "iwa": name, "texts": [], "equations": [], "images": [],
+            "links": [], "builds": [], "clicks": 0, "automatic_steps": 0}
     if not name:
         return info
     objs = read_iwa_bytes(z.read(name))
@@ -154,10 +221,7 @@ def parse_slide(z: zipfile.ZipFile, names: dict[int, str], slide_id: int) -> dic
                     if s and s.strip():
                         info["texts"].append(s)
             elif t == 3005:
-                for s in fields(b).get(100, []):
-                    s = text_of(s)
-                    if s:
-                        info["equations"].append(s)
+                info["images"].append(image_record(b, data, cache))
             elif t == 2032:
                 for s in fields(b).get(2, []):
                     s = text_of(s)
@@ -202,6 +266,10 @@ def parse_slide(z: zipfile.ZipFile, names: dict[int, str], slide_id: int) -> dic
                             info["title"] = txt[0]
                     todo.extend(i for i in _varints(b) if i in by_id and i not in seen)
     info["builds"] = list(builds.values())
+    # Reading order: top to bottom, then left to right (rows within ~20 pt).
+    info["images"].sort(key=lambda im: (round((im["y"] or 0) / 20), im["x"] or 0))
+    info["equations"] = [im["latex"] for im in info["images"] if im["latex"]]
+    info["images"] = [im for im in info["images"] if im["file"] or im["latex"]]
     info["links"] = sorted(set(info["links"]))
     return info
 
@@ -227,8 +295,12 @@ def extract(key_path: str) -> dict:
     show = next(b for v in doc.values() for t, b in v if t == 2)
     tree = fields(show).get(3, [b""])[0]
     node_ids = [ref(v) for v in fields(tree).get(2, [])]
-    thumbs = {}
-    for n in z.namelist():
+    thumbs, data, cache = {}, {}, {}
+    for zi in z.infolist():
+        n = member_name(zi)
+        m = re.match(r"Data/.*-(\d+)\.\w+$", n)
+        if m:
+            data[int(m.group(1))] = (z, zi)
         m = re.match(r"Data/st-.*-(\d+)\.\w+$", n)
         if m:
             thumbs[int(m.group(1))] = n
@@ -239,7 +311,7 @@ def extract(key_path: str) -> dict:
         f = fields(node)
         sid = ref(f[2][0])
         thumb_id = ref(f[16][0]) if 16 in f else None
-        s = parse_slide(z, names, sid)
+        s = parse_slide(z, names, sid, data, cache)
         s.update({"number": len(slides) + 1, "skipped": bool(f.get(4, [0])[0]),
                   "depth": depth, "thumbnail": thumbs.get(thumb_id)})
         if not s.get("title"):
@@ -253,8 +325,61 @@ def extract(key_path: str) -> dict:
         walk(nid, 0)
     times = [zi.date_time for zi in z.infolist() if zi.filename.startswith("Index/Document")]
     return {"key": key_path, "saved": "%04d-%02d-%02d %02d:%02d:%02d" % times[0] if times else None,
-            "slides": slides,
+            "slides": slides, "runs": find_runs(slides),
             "predicted_pdf_pages": sum(s["predicted_pages"] for s in slides)}
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"\s+", " ", t).strip().casefold()
+
+
+def _content(s: dict) -> tuple[set, set]:
+    texts = {re.sub(r"\s+", " ", t).strip() for t in s["texts"]} - {"\ufffc", ""}
+    return texts, {im["latex"] or im["file"] for im in s["images"]}
+
+
+def find_runs(slides: list[dict]) -> list[dict]:
+    """Consecutive visible slides with the same title (duplicated-slide builds).
+
+    cumulative: every slide keeps all text and images of the one before it, so
+    the run is one frame with one overlay state per slide. Otherwise
+    rearranged_at lists the slides that drop or replace earlier content (a
+    relayout, a swapped figure, or the start of a new example under the same
+    title); look at those slides before deciding how to split the run.
+    """
+    runs, cur = [], []
+    vis = [s for s in slides if not s["skipped"]]
+    for s in vis + [None]:
+        if cur and (s is None or _norm_title(s["title"]) != _norm_title(cur[-1]["title"])
+                    or not _norm_title(s["title"])):
+            if len(cur) > 1:
+                changed = []
+                for a, b in zip(cur, cur[1:]):
+                    (ta, ia), (tb, ib) = _content(a), _content(b)
+                    if not (ta <= tb and ia <= ib):
+                        changed.append(b["number"])
+                runs.append({"first": cur[0]["number"], "last": cur[-1]["number"],
+                             "title": cur[0]["title"], "cumulative": not changed,
+                             "rearranged_at": changed})
+            cur = []
+        if s is not None:
+            cur.append(s)
+    return runs
+
+
+def write_media(key_path: str, outdir: str) -> list[str]:
+    """Copy every Data/ file to outdir under safe_name(); return the names."""
+    z = zipfile.ZipFile(key_path)
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for zi in z.infolist():
+        n = member_name(zi)
+        if n.startswith("Data/") and not n.endswith("/"):
+            dest = out / safe_name(n)
+            dest.write_bytes(z.read(zi))
+            written.append(dest.name)
+    return written
 
 
 def pdf_info(pdf: str) -> tuple[int | None, str | None]:
@@ -272,8 +397,12 @@ def main():
     ap.add_argument("key")
     ap.add_argument("--pdf", help="build-expanded PDF export to reconcile against")
     ap.add_argument("--json", help="write full extraction as JSON ('-' for stdout)")
+    ap.add_argument("--media", metavar="DIR", help="copy embedded media (Data/) to DIR under safe names")
     a = ap.parse_args()
     d = extract(a.key)
+    if a.media:
+        n = len(write_media(a.key, a.media))
+        print(f"copied {n} media files to {a.media}", file=sys.stderr)
     if a.pdf and not Path(a.pdf).exists():
         sys.exit(f"error: {a.pdf} not found")
     if a.pdf:
@@ -290,10 +419,19 @@ def main():
         print(f"{s['number']:3} {'SKIP' if s['skipped'] else '    '} clicks={s['clicks']:2}"
               f"{'+' + str(s['automatic_steps']) + 'auto' if s['automatic_steps'] else ''}"
               f"  {title!r}" + (f"  builds: {b}" if b else ""))
-        for e in s["equations"]:
-            print(f"        eq: {e[:100]!r}")
+        for im in s["images"]:
+            if im["latex"]:
+                tag = "eq" if im["latex_from"] == "equation" else "latexit"
+                col = f" [color {im['color']}]" if im["color"] else ""
+                print(f"        {tag}: {im['latex'][:100]!r}{col}")
+            elif not re.match(r"(pasted-image-)?small-|.*-small-\d+\.", im["file"] or ""):
+                print(f"        image: {im['file']}")
         for l in s["links"]:
             print(f"        link: {l}")
+    for r in d["runs"]:
+        kind = "cumulative" if r["cumulative"] else \
+            "content dropped or replaced at slide " + ", ".join(map(str, r["rearranged_at"]))
+        print(f"run: slides {r['first']}-{r['last']} {r['title'][:40]!r} ({kind})")
     print(f"predicted build-expanded PDF pages (non-skipped slides): {d['predicted_pdf_pages']}")
     if a.pdf:
         print(f"{a.pdf}: {d['pdf_pages']} pages, created {d['pdf_created']}")
