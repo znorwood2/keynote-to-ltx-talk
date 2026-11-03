@@ -3,7 +3,7 @@
 A [Claude Code](https://claude.com/claude-code) skill that converts Apple Keynote lecture slides into editable, accessible LaTeX decks using the [`ltx-talk`](https://ctan.org/pkg/ltx-talk) class.
 
 It is built for instructors who teach from Keynote and want their slides in LaTeX without retyping them. The converted deck:
-- **matches the Keynote:** the same wording, math (as real LaTeX, taken from Keynote's equation objects) and build order. Each click is an overlay;
+- **matches the Keynote:** the same wording, math (as real LaTeX, taken from Keynote's equation objects or the source LaTeXiT embeds in pasted equations) and build order. Each click, or each duplicated slide, is an overlay;
 - **follows your course template**, fonts and colors;
 - **has the teaching features many instructors use:**
   - **live-poll slides** (`pollframe`) showing a session `\pollcode` you set once per deck;
@@ -49,7 +49,8 @@ Claude reads the Keynote, writes `3.4.tex`, builds and checks it, and reports wh
 
 | Script | What it does |
 |---|---|
-| `scripts/keynote_extract.py deck.key [--pdf export.pdf] [--json -]` | Slide order, skip flags, text, equation LaTeX, links, builds and click counts from a `.key`; checks the predicted page count against an export. |
+| `scripts/keynote_extract.py deck.key [--pdf export.pdf] [--json -] [--media DIR]` | Slide order, skip flags, text, equation LaTeX (Keynote equations and LaTeXiT images), images, links, builds and click counts from a `.key`. Also detects duplicated-slide builds and checks the predicted page count against an export. `--media` copies embedded images under safe file names. |
+| `scripts/latexit.py file.pdf ...` | Prints the LaTeX source that LaTeXiT embeds in its equation images. |
 | `scripts/build_variants.py deck.tex [--solutions] [--outdir DIR]` | Builds the instructor-animated, instructor-handout and student PDFs, and optionally the solutions variants, without editing the source. |
 | `scripts/src_check.py deck.tex [--palette ...]` | Flags unclassified TikZ pictures, images without alt text, tables without header tagging, off-palette text colors, transparent handout answers, and absolute overlay numbers. |
 | `scripts/a11y_audit.py deck.pdf ...` | Checks a compiled PDF for low-contrast, very light or transparent text, figures without alt text, tables without headers, and missing language or title. |

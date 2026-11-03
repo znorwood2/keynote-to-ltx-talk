@@ -28,10 +28,10 @@ Before the first conversion in a session, read:
 Never modify the `.key`, its export, or the template. Work in a scratch folder.
 
 ```bash
-python3 <skill>/scripts/keynote_extract.py keynote/3.4.key --pdf keynote/3.4-anim-qr.pdf
+python3 <skill>/scripts/keynote_extract.py keynote/3.4.key --pdf keynote/3.4-anim-qr.pdf --media <scratch>/media
 ```
 
-This lists every slide in show order with its skip flag, title, text, equation LaTeX, links, builds and click count, and checks the predicted page count against the export. Render the export pages you need (`pdftoppm -scale-to-x 800 -scale-to-y -1 -f N -l N`) and look at them. Text extraction alone misses layout, color and what each build reveals.
+This lists every slide in show order with its skip flag, title, text, equation LaTeX (Keynote equations and LaTeXiT images), images, links, builds and click count. It also lists runs of duplicated slides used in place of builds, and checks the predicted page count against the export. `--media` copies the embedded images under safe names; don't `unzip` the `.key`. Render the export pages you need (`pdftoppm -scale-to-x 800 -scale-to-y -1 -f N -l N`) and look at them. Text extraction alone misses layout, color and what each build reveals.
 
 Build a source-to-output map before writing LaTeX: for each slide, whether it is converted, a poll, a solution alternative, collapsed (title-only first state) or archival, and how many output states it gets.
 
@@ -39,7 +39,7 @@ Build a source-to-output map before writing LaTeX: for each slide, whether it is
 
 Start from the course template's preamble verbatim. Follow the conversion standard. In short:
 - exact wording and math, native LaTeX (from the equation objects), inline vs. display as in the source;
-- one output state per substantive Keynote build state, relative overlays (`<+->`, `<.->`);
+- one output state per substantive Keynote build state, relative overlays (`<+->`, `<.->`); a run of duplicated slides is one frame with one state per slide;
 - poll slides become `pollframe` with `\pollcode`;
 - worked solutions on skipped slides go behind `instructorsolutions`;
 - term-specific slides become archival comments after `\end{document}`;

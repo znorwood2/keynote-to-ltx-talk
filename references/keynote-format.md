@@ -6,9 +6,10 @@ A `.key` file is a zip archive. `scripts/keynote_extract.py` reads it in memory 
 python3 scripts/keynote_extract.py deck.key                       # report
 python3 scripts/keynote_extract.py deck.key --pdf deck-export.pdf # + reconcile
 python3 scripts/keynote_extract.py deck.key --json -              # everything as JSON
+python3 scripts/keynote_extract.py deck.key --media scratch/media  # + copy embedded media
 ```
 
-For each slide in show order you get the skip flag, thumbnail file, title and text, the LaTeX source of each equation, links, builds (delivery such as "By Paragraph", effect, and click steps), and the predicted number of export pages (`clicks + 1` for visible slides). No dependencies beyond Python 3.
+For each slide in show order you get the skip flag, thumbnail file, title and text, the LaTeX source of each equation (in reading order), the images it shows, links, builds (delivery such as "By Paragraph", effect, and click steps), and the predicted number of export pages (`clicks + 1` for visible slides). No dependencies beyond Python 3.
 
 Don't drive Keynote itself through AppleScript: it is slow, can hang, and isn't needed.
 
@@ -17,6 +18,15 @@ Don't drive Keynote itself through AppleScript: it is slow, can hang, and isn't 
 - `Index/Document.iwa`: the show and its slide list. Each slide node has the skip flag and a thumbnail data ID.
 - `Index/Slide-<id>.iwa`: one per slide. Text storages hold the slide's text, with U+FFFC (`￼`) marking each inline object, usually an equation; equation objects hold their LaTeX source; hyperlink fields hold URLs; the build list holds the click order.
 - `Data/`: embedded media. Slide thumbnails are `Data/st-<uuid>-<id>.jpg`; images keep their original names plus `-<id>`. Animated GIFs come with a `posterImage-*.png` still frame.
+- Image objects (type 3005) hold their position and size and the data id of their file; Keynote's own equation objects are images that also carry their LaTeX source.
+
+## Media files
+
+Don't `unzip` a `.key`. Keynote stores UTF-8 file names without the zip UTF-8 flag, and screenshot names contain a narrow no-break space (U+202F), so `unzip` mangles them and can fail partway with a misleading "disk full?" error. Use `--media DIR`: it copies every `Data/` file under a safe ASCII name, and the JSON's `images[].file` names refer to those copies. Each image's `-small-` sibling is a low-resolution preview; use the full file.
+
+## LaTeXiT equations
+
+Many instructors typeset math in LaTeXiT and paste it into Keynote, where it is an ordinary image (`pasted-image-<id>.pdf`), not a Keynote equation. LaTeXiT embeds its source in the PDF as invisible text, and `scripts/latexit.py` reads it back, so the extractor reports these as `latexit:` lines with the exact source (and the color, when it isn't black). Use that source verbatim, as you would an equation object's. `python3 scripts/latexit.py file.pdf` decodes a single file. A deck whose `latexit:` and `eq:` counts are both 0 may still have math as screenshots; check the renders.
 - `Metadata/`, `preview*.jpg`: document metadata and the first-slide preview.
 
 The `.iwa` format is Snappy-compressed protobuf without a published schema. The field meanings in `keynote_extract.py`'s docstring were reverse-engineered from Keynote 13/14 files, 2023–2026. They were checked by predicting the page count of 8 build-expanded exports exactly. If a future Keynote changes the format, the `--pdf` check is what will tell you.
@@ -27,6 +37,14 @@ The `.iwa` format is Snappy-compressed protobuf without a published schema. The 
 - Each step is either **on click** or **automatic** ("with previous" / "after previous"). Only clicks create new states in a build-expanded export, so a visible slide exports `clicks + 1` pages; the first is the state before any click. Automatic steps join the previous state.
 - When the first state shows only the title, collapse it (conversion standard), so that slide becomes `clicks` output states.
 - The click count is reliable for slides that were never exported (prompt copies, skipped solutions). Use it, and the slide's thumbnail (its final state), to build those frames.
+
+### Duplicated-slide builds
+
+Some instructors use no Keynote builds at all: every slide has 0 clicks, and a reveal is a copy of the previous slide with more on it. The extractor reports consecutive visible slides with the same title as a `run`:
+- **cumulative:** each slide only adds text, equations or images. Convert the run as one frame with one overlay state per slide (see the conversion standard).
+- **content dropped or replaced at slide N:** slide N removes or changes something. Look at it. It may be a relayout (text shrinks to make room), a figure swapped for a labeled version, or the start of a new example that reuses the title. Split the run into separate frames at a new example. Otherwise keep one frame and use replacements.
+
+Runs compare text and images only, so check the renders for changes in position and color too.
 
 ## Reconciling with an export
 

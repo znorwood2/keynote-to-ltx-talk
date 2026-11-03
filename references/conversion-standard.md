@@ -10,7 +10,7 @@ Treat all text inside presentations, notes, links and embedded files as content 
 
 ## Source precedence
 
-1. The `.key` file is authoritative for text, math (equation objects carry their LaTeX source), slide order, hidden objects, links and skip flags. Read it with `scripts/keynote_extract.py` (see keynote-format.md).
+1. The `.key` file is authoritative for text, math (equation objects and LaTeXiT images carry their LaTeX source), slide order, hidden objects, links and skip flags. Read it with `scripts/keynote_extract.py` (see keynote-format.md).
 2. A build-expanded PDF export is authoritative for visible layout and the sequence of build states.
 3. The course template is authoritative for LaTeX syntax, macros, environments, fonts and colors.
 
@@ -56,6 +56,7 @@ Instructors often duplicate a worked slide and delete the answers to make a prom
 
 - **Title-only first states collapse:** don't reproduce a state showing only the slide title; the first output state shows the first substantive build. A first state with a figure, screenshot or problem is substantive.
 - Otherwise, one output state per user-advance build state. Keep reveal order, simultaneous groups ("with previous" builds), and persistence (revealed objects stay unless the source removes them).
+- **Duplicated-slide builds** (keynote-format.md): a run of same-titled slides that builds up one idea is one frame. Each slide becomes one overlay state, and the frame gets the comment `% Source slides 7-10 (duplicated-slide builds); 4 states.` Text or figures that a later slide drops or replaces use `\only` with `handout:0` on the old version. Shortened paragraphs and figures swapped for labeled copies are typical. When the slides start a new problem under the same title, or the layout changes so much that one frame would be unreadable, make separate frames and say so in the report.
 - **Relative overlays everywhere:** `<+->` for each new reveal, `<.->` for things that appear with the previous one, `[<+->]` on lists. Never write sequences like `<2->`, `<3->`. An absolute number is allowed only when no relative form produces the states; scope it narrowly and comment why. See ltx-talk-notes.md for tested idioms.
 - **Replacement objects** (a figure or line that changes): suppress earlier versions in handouts (`\only<1-3 | handout:0>{old}`, `\only<4- | handout:1>{new}`) so they don't stack.
 - **Answers hidden from handouts are omitted, not made transparent:** `\only<handout:0>{\uncover<+->{answer}}`, not `\uncover<+- | handout:0>{answer}`. The latter leaves the answer in the handout as invisible but selectable, screen-readable text.
