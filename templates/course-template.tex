@@ -1,0 +1,181 @@
+%%% Course template for Keynote-to-ltx-talk conversions.
+%%% Copy this file into your course folder, adapt the marked COURSE lines, and
+%%% name it in your ltx-talk-course.md profile. Every converted deck starts
+%%% from this preamble.
+\DocumentMetadata{
+  lang        = en-US,
+  pdfstandard = ua-2,
+  tagging     = on,
+  tagging-setup = {math/setup=mathml-SE, math/alt/use}
+}
+
+\documentclass[font-size=12pt]{ltx-talk}     %%% requires LaTeX 2025-11-01 or later
+%%% build_variants.py adds/removes the handout option here; keep the
+%%% \documentclass on one line.
+%%%-------------------------------------------------------------------------
+\SetKeys[talk]{frame/vertical-alignment=top}
+\tagpdfsetup{role / new-tag = frametitle / H1}
+%%% Make frame titles tagged at the top heading level.
+%%%-------------------------------------------------------------------------
+%%% WORKAROUND for ltx-talk 0.6.10 (2026-10-13): list options other than an
+%%% overlay spec, e.g. [item-label=\Alph*.] or [start=4], are silently dropped,
+%%% so poll choices print 1., 2., ... instead of A., B., ...
+%%% This restores the earlier behavior. Delete it once ltx-talk fixes the bug.
+\ExplSyntaxOn
+\cs_set_protected:Npn \__talk_block_set:n #1
+  {
+    \tl_clear:N \l__talk_tmp_tl
+    \tl_if_head_eq_charcode:nNTF {#1} { < }
+      { \keys_set_known:nnN { talk / block } { action-spec = {#1} } \l__talk_tmp_tl }
+      { \keys_set_known:nnN { talk / block } {#1} \l__talk_tmp_tl }
+  }
+\ExplSyntaxOff
+%%%-------------------------------------------------------------------------
+%%% fonts (COURSE: change if you like; keep a math font with good coverage)
+\usepackage{lum-termes}
+%%%-------------------------------------------------------------------------
+%%% graphics
+\usepackage{pgfplots,tikz}
+  \pgfplotsset{compat=1.18}
+  \usetikzlibrary{angles, quotes, calc, arrows.meta, positioning}
+  \usetikzlibrary{tikzmark, fit}      %%% callouts and boxes around text
+  \usetikzlibrary{shapes.geometric}
+  \tikzset{>=latex}
+\usepackage{graphicx}
+\graphicspath{
+    {fig/}                            %%% COURSE: your figure folders
+}
+%%%-------------------------------------------------------------------------
+%%% colors: every text color must pass WCAG AA (4.5:1) on white.
+%%% xcolor's black, blue and violet pass; red, orange, green, cyan, gray do not.
+\usepackage{xcolor}
+  \definecolor{accentred}{RGB}{208, 0, 0}     %%% 5.9:1  (COURSE: rename/restyle,
+  \definecolor{accentgreen}{RGB}{0, 110, 0}   %%% 7.2:1   e.g. a school color,
+  \definecolor{accentorange}{RGB}{190, 75, 0} %%% 4.9:1   but keep >= 4.5:1)
+%%%-------------------------------------------------------------------------
+\usepackage{amsmath}
+\usepackage{amsthm}
+\theoremstyle{definition}
+\newtheorem*{thm}{Theorem}
+\newtheorem*{defn}{Definition}
+\newtheorem{example}{Example}
+%%%-------------------------------------------------------------------------
+%%% Instructor / student and solutions toggles.
+%%%   instructor           on: full title slide with reminders and poll code,
+%%%                            poll frames shown.
+%%%                        off: student version (title-only first slide, no polls).
+%%%   instructorsolutions  on: worked solutions shown (solution frames replace
+%%%                            prompt frames; instructorsol content visible).
+%%% Leave both lines at the top of the document body as \toggletrue/\togglefalse
+%%% so build_variants.py can rewrite them.
+\usepackage{etoolbox}   %%% provides \newtoggle
+\usepackage{environ}    %%% provides \NewEnviron
+\newtoggle{instructor}
+\newtoggle{instructorsolutions}
+\newcommand{\ifinstructor}[2]{\iftoggle{instructor}{#1}{#2}}
+%%%-------------------------------------------------------------------------
+%%% Live polling. \pollcode is the session code students type in; \pollsite
+%%% is where they go. Update \pollcode each class meeting (one place per deck).
+\newcommand{\pollcode}{XYZXYZ}               %%% placeholder code
+\newcommand{\pollsite}{polling.example.edu}  %%% COURSE: your polling site
+\newcommand{\polltitle}{Poll question}       %%% COURSE: e.g. Quick check
+%%% pollframe: a frame shown only in instructor builds, with the poll code in
+%%% large type at the bottom right.
+\NewEnviron{pollframe}{%
+  \iftoggle{instructor}
+    {\begin{frame}[vertical-alignment=top]
+        \frametitle{\polltitle}
+        \medskip
+        \begin{minipage}[t][\textheight][s]{\linewidth}
+            %%% wrapped in a minipage because ltx-talk doesn't
+            %%% handle \vfill in an obvious way
+            \BODY
+        \vfill
+
+{\raggedleft
+ \fontsize{60pt}{60pt}\selectfont
+ \pollcode\par}
+\end{minipage}
+    \end{frame}}
+    {}%
+  }
+%%% instructorsol: content shown only when instructorsolutions is on; its
+%%% space is kept (but nothing is drawn) when off.
+\NewEnviron{instructorsol}{%
+  \iftoggle{instructorsolutions}{%
+    \BODY
+  }{%
+    \phantom{\BODY}
+  }
+}
+%%%-------------------------------------------------------------------------
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    allcolors=.,
+    urlcolor=blue,
+}
+%%%-------------------------------------------------------------------------
+%%% course macros (COURSE: add your own; math courses often want bold vectors)
+\newcommand{\vu}{\mathbf{u}}
+\newcommand{\vv}{\mathbf{v}}
+\newcommand{\abs}[1]{\left| #1 \right|}
+\newcommand{\defem}{\alert}
+%%% Page-specific tikzmark for callout arrows that appear on several overlay
+%%% states: \deckmark{name}{content}, then refer to (name-\arabic{page}).
+\newcommand{\deckmark}[2]{\expanded{\noexpand\tikzmarknode{#1-\arabic{page}}}{#2}}
+%%%-------------------------------------------------------------------------
+\begin{document}
+\toggletrue{instructor}
+\togglefalse{instructorsolutions}
+%%%-------------------------------------------------------------------------
+\title{Section title}
+\author{Course name}
+\date{\alert{Update date}}
+%%%-------------------------------------------------------------------------
+%%% Title slide: full version for the instructor, title only for students.
+\begin{frame}
+  \ifinstructor{%
+  \maketitle[frame-style = wallpaper, horizontal-alignment = left]
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      Reminders:
+      \begin{itemize}
+        \item \alert{Update reminders.}
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \begin{flushright}
+        Poll code:
+        \par\smallskip\par
+        {\fontsize{40pt}{40pt}\selectfont \pollcode} \\
+        \pollsite
+      \end{flushright}
+    \end{column}
+  \end{columns}
+  }{%
+    \frametitle{Section title}
+  }
+\end{frame}
+%%%-------------------------------------------------------------------------
+\begin{frame}
+  \frametitle{An ordinary frame}
+  \begin{itemize}[<+->]
+    \item Revealed one at a time.
+    \item Vectors are bold: \(\vu + \vv\).
+  \end{itemize}
+  \begin{instructorsol}
+    A worked answer that only the solutions build shows.
+  \end{instructorsol}
+\end{frame}
+%%%-------------------------------------------------------------------------
+\begin{pollframe}
+  This question is asking for an answer:
+  \begin{enumerate}[item-label=\Alph*.]
+    \item option A
+    \item option B
+    \item option C
+  \end{enumerate}
+\end{pollframe}
+%%%-------------------------------------------------------------------------
+\end{document}
